@@ -19,6 +19,12 @@ import { useTenant, useApi } from "@/hooks";
 import type { Devotee, Seva } from "@/types";
 import { formatCurrency } from "@/lib/format";
 import { printReceipt, resolveDesign, receiptFromBooking } from "@/lib/receipt";
+import {
+  printToNetwork,
+  buildBridgeReceipt,
+  isNetworkPrinter,
+  layoutWidth,
+} from "@/lib/print-bridge";
 
 const PAYMENT_MODES = [
   { id: "cash", label: "Cash" },
@@ -164,22 +170,53 @@ export function CounterSaleForm() {
         status: "confirmed",
       });
 
-      // Print the token on the event's assigned printer, using its layout's
-      // saved design and the tenant's real organisation header.
-      const layout = printers.find((p) => p.id === selectedEvent.printerId)?.layout ?? "80mm";
-      printReceipt(
-        layout,
-        resolveDesign(layout, settings?.receiptLayouts),
-        receiptFromBooking(settings ?? {}, {
-          receiptNo,
-          soldAt,
-          devoteeName,
-          payment,
-          sevaName: selectedSeva.name,
-          qty,
-          amount: total,
-        }),
-      );
+      // Print the token to the event's assigned printer. A network (IP) printer
+      // goes through the local print bridge; otherwise fall back to the browser
+      // print dialog (which also covers OS-installed USB/WiFi printers).
+      const printer = printers.find((p) => p.id === selectedEvent.printerId) ?? null;
+      const paymentLabel = PAYMENT_MODES.find((m) => m.id === payment)?.label;
+      const dialogFallback = () => {
+        const layout = printer?.layout ?? "80mm";
+        printReceipt(
+          layout,
+          resolveDesign(layout, settings?.receiptLayouts),
+          receiptFromBooking(settings ?? {}, {
+            receiptNo,
+            soldAt,
+            devoteeName,
+            payment,
+            sevaName: selectedSeva.name,
+            qty,
+            amount: total,
+          }),
+        );
+      };
+      if (isNetworkPrinter(printer)) {
+        try {
+          await printToNetwork(
+            printer.ipAddress,
+            buildBridgeReceipt(
+              settings,
+              {
+                receiptNo,
+                soldAt,
+                devoteeName,
+                sevaName: selectedSeva.name,
+                qty,
+                amount: total,
+                currency: selectedSeva.currency,
+                paymentLabel,
+              },
+              layoutWidth(printer.layout),
+            ),
+          );
+        } catch (e) {
+          toast.danger((e as { message?: string }).message ?? "Printer error — opening print dialog");
+          dialogFallback();
+        }
+      } else {
+        dialogFallback();
+      }
     } catch (err) {
       toast.danger((err as { message?: string }).message ?? "Failed to record booking");
       throw err;

@@ -19,6 +19,13 @@ import type { Booking, CrmEvent, PaymentMode, Printer as PrinterType, ReceiptLay
 import type { TenantSettings } from "@/lib/api/services";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { printReceipt, resolveDesign, receiptFromBooking } from "@/lib/receipt";
+import {
+  printToNetwork,
+  buildBridgeReceipt,
+  isNetworkPrinter,
+  layoutWidth,
+} from "@/lib/print-bridge";
+import { toast } from "@/components/ui";
 
 const PAYMENT_LABEL: Record<PaymentMode, string> = {
   cash: "Cash",
@@ -37,18 +44,47 @@ const PAYMENT_CHIP: Record<
   other: { variant: "soft", color: "default" },
 };
 
-/** Build receipt data for a booking and send it to its event's printer,
- *  using the tenant's real org header + the layout's saved design. */
-function printBooking(
+/** Print a booking's receipt to its event's assigned printer. Network (IP)
+ *  printers go through the local print bridge; otherwise the browser dialog. */
+async function printBooking(
   b: Booking,
   events: CrmEvent[],
   printers: PrinterType[],
   settings: TenantSettings | null,
 ) {
   const event = events.find((e) => e.title === b.eventName);
-  const printer = printers.find((p) => p.id === event?.printerId);
-  const layout: ReceiptLayout = printer?.layout ?? "80mm";
-  printReceipt(layout, resolveDesign(layout, settings?.receiptLayouts), receiptFromBooking(settings ?? {}, b));
+  const printer = printers.find((p) => p.id === event?.printerId) ?? null;
+  const dialogFallback = () => {
+    const layout: ReceiptLayout = printer?.layout ?? "80mm";
+    printReceipt(layout, resolveDesign(layout, settings?.receiptLayouts), receiptFromBooking(settings ?? {}, b));
+  };
+  if (isNetworkPrinter(printer)) {
+    try {
+      await printToNetwork(
+        printer.ipAddress,
+        buildBridgeReceipt(
+          settings,
+          {
+            receiptNo: b.receiptNo,
+            soldAt: b.soldAt,
+            devoteeName: b.devoteeName,
+            soldBy: b.soldBy,
+            sevaName: b.sevaName,
+            qty: b.qty,
+            amount: b.amount,
+            currency: b.currency,
+            paymentLabel: PAYMENT_LABEL[b.payment],
+          },
+          layoutWidth(printer.layout),
+        ),
+      );
+    } catch (e) {
+      toast.danger((e as { message?: string }).message ?? "Printer error — opening print dialog");
+      dialogFallback();
+    }
+  } else {
+    dialogFallback();
+  }
 }
 
 export default function BookingsPage() {
