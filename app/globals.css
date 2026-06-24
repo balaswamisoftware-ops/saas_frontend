@@ -1,26 +1,54 @@
-@import "tailwindcss";
+/* HeroUI v3 ships a layered stylesheet that also imports Tailwind CSS v4. */
+@import "@heroui/styles/css";
 
+/*
+ * Tell Tailwind v4 to also scan HeroUI's compiled output so any utility
+ * classes it relies on are generated. Project files are auto-detected.
+ */
+@source "../node_modules/@heroui/react/dist";
+
+/*
+ * ---------------------------------------------------------------------------
+ * Brand tokens
+ * ---------------------------------------------------------------------------
+ * Override HeroUI theme variables here to brand the whole product (both the
+ * SaaS console and the tenant admin) from a single place.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --brand: oklch(0.55 0.18 35); /* warm saffron — fits the "seva" theme */
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100%;
+}
+
+/* Thin, app-like scrollbars inside dashboard scroll areas. */
+.app-scroll {
+  scrollbar-width: thin;
+}
+
+/*
+ * Receipt printing — when a receipt preview (id="print-area") is on screen and
+ * the user prints, hide the whole app and show only the receipt. The receipt's
+ * own `@page` rule sets the paper size (55mm / 80mm / A4).
+ */
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  #print-area,
+  #print-area * {
+    visibility: visible !important;
+  }
+  #print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    margin: 0 !important;
+  }
 }
