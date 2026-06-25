@@ -25,6 +25,11 @@ export interface ReceiptData {
   orgName: string;
   /** Organisation logo URL — printed faintly as a centered watermark. */
   logo?: string;
+  /**
+   * What the receipt is for. "seva" shows a Qty column (Particulars · Qty ·
+   * Amount); "donation" drops Qty (Purpose · Amount). Defaults to "seva".
+   */
+  kind?: "seva" | "donation";
   addressLines: string[];
   phone?: string;
   gstin?: string;
@@ -107,6 +112,12 @@ export interface ReceiptDesign {
   declaration: string;
   /** Signatory line, e.g. "For SriVidya Pitam". Supports merge tags. Empty = hidden. */
   signatory: string;
+  /** Show the organisation logo as a header image (A4 only). Default true. */
+  showLogo?: boolean;
+  /** Header logo alignment (A4). Default "center". */
+  logoAlign?: "left" | "center" | "right";
+  /** Header logo size (A4): sm ≈ 56px, md ≈ 88px, lg ≈ 120px tall. Default "md". */
+  logoSize?: "sm" | "md" | "lg";
 }
 
 /** Fields that can be dropped into the header/footer rich text. */
@@ -174,6 +185,9 @@ function a4Design(): ReceiptDesign {
     showAmountInWords: true,
     declaration: A4_DECLARATION,
     signatory: "For {{orgName}}",
+    showLogo: true,
+    logoAlign: "center",
+    logoSize: "md",
   };
 }
 
@@ -257,8 +271,23 @@ function rule(layout: ReceiptLayout) {
 }
 
 function itemsBlock(layout: ReceiptLayout, data: ReceiptData) {
+  // Donation receipts list Purpose · Amount (no quantity); seva receipts keep
+  // the Qty column.
+  const donation = data.kind === "donation";
+  const colLabel = donation ? "Purpose" : "Particulars";
+
   if (isThermal(layout)) {
-    const head = `<div style="display:flex;font-weight:700"><span style="flex:1">Particulars</span><span style="width:2.4em;text-align:right">Qty</span><span style="width:5.5em;text-align:right">Amount</span></div>`;
+    if (donation) {
+      const head = `<div style="display:flex;font-weight:700"><span style="flex:1">${colLabel}</span><span style="width:6em;text-align:right">Amount</span></div>`;
+      const rows = data.lines
+        .map(
+          (l) =>
+            `<div style="display:flex"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.label}</span><span style="width:6em;text-align:right">${formatCurrency(l.amount)}</span></div>`,
+        )
+        .join("");
+      return head + rows;
+    }
+    const head = `<div style="display:flex;font-weight:700"><span style="flex:1">${colLabel}</span><span style="width:2.4em;text-align:right">Qty</span><span style="width:5.5em;text-align:right">Amount</span></div>`;
     const rows = data.lines
       .map(
         (l) =>
@@ -267,13 +296,24 @@ function itemsBlock(layout: ReceiptLayout, data: ReceiptData) {
       .join("");
     return head + rows;
   }
+
+  if (donation) {
+    const rows = data.lines
+      .map(
+        (l) =>
+          `<tr style="border-bottom:1px solid #efefef"><td style="padding:6px 0">${l.label}</td><td style="padding:6px 0;text-align:right">${formatCurrency(l.amount)}</td></tr>`,
+      )
+      .join("");
+    return `<table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid #d4d4d4;text-align:left"><th style="padding:6px 0">${colLabel}</th><th style="padding:6px 0;text-align:right;width:10em">Amount</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
   const rows = data.lines
     .map(
       (l) =>
         `<tr style="border-bottom:1px solid #efefef"><td style="padding:6px 0">${l.label}</td><td style="padding:6px 0;text-align:right">${l.qty}</td><td style="padding:6px 0;text-align:right">${formatCurrency(l.amount)}</td></tr>`,
     )
     .join("");
-  return `<table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid #d4d4d4;text-align:left"><th style="padding:6px 0">Particulars</th><th style="padding:6px 0;text-align:right;width:4em">Qty</th><th style="padding:6px 0;text-align:right;width:8em">Amount</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `<table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid #d4d4d4;text-align:left"><th style="padding:6px 0">${colLabel}</th><th style="padding:6px 0;text-align:right;width:4em">Qty</th><th style="padding:6px 0;text-align:right;width:8em">Amount</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 /**
@@ -352,8 +392,18 @@ export function buildReceiptBody(
     : "";
   const donorExtras = [amountWords, declaration, signatory].filter(Boolean).join("");
 
+  // A4: show the organisation logo as a real, positionable image at the top of
+  // the header. Thermal stays watermark-only — small thermal paper can't render
+  // a logo cleanly. Controlled by the layout designer (align + size).
+  const logoHeight = design.logoSize === "sm" ? 56 : design.logoSize === "lg" ? 120 : 88;
+  const logoAlign = design.logoAlign ?? "center";
+  const headerLogo =
+    !thermal && data.logo && design.showLogo !== false
+      ? `<div style="text-align:${logoAlign};margin-bottom:10px"><img src="${data.logo}" alt="${data.orgName} logo" style="max-height:${logoHeight}px;max-width:70%;object-fit:contain" /></div>`
+      : "";
+
   const parts = [
-    applyMergeTags(design.headerHtml, data),
+    headerLogo + applyMergeTags(design.headerHtml, data),
     title,
     design.showMeta ? meta : "",
     design.showItems ? itemsBlock(layout, data) : "",

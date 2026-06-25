@@ -31,10 +31,18 @@ import type { ReceiptLayout } from "@/types";
 
 const LAYOUTS: ReceiptLayout[] = ["55mm", "80mm", "a4"];
 
+/** Stand-in logo so the layout can be positioned before a real logo is uploaded. */
+const PLACEHOLDER_LOGO =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    `<svg xmlns='http://www.w3.org/2000/svg' width='160' height='80'><rect width='160' height='80' rx='8' fill='#ece7df'/><text x='80' y='46' font-family='sans-serif' font-size='17' fill='#b3a892' text-anchor='middle'>LOGO</text></svg>`,
+  );
+
 export default function ReceiptLayoutsPage() {
   const { api } = useTenant();
   const { data: settings, refetch } = useApi(() => api.settings.get(), []);
   const [active, setActive] = useState<ReceiptLayout>("80mm");
+  const [previewKind, setPreviewKind] = useState<"seva" | "donation">("seva");
   const [designs, setDesigns] = useState<Record<ReceiptLayout, ReceiptDesign>>(DEFAULT_DESIGNS);
   const [saving, setSaving] = useState(false);
 
@@ -49,7 +57,15 @@ export default function ReceiptLayoutsPage() {
   const previewData: ReceiptData = {
     ...SAMPLE_RECEIPT,
     orgName: settings?.name ?? SAMPLE_RECEIPT.orgName,
-    logo: settings?.logoUrl,
+    logo: settings?.logoUrl || PLACEHOLDER_LOGO,
+    kind: previewKind,
+    lines:
+      previewKind === "donation"
+        ? [
+            { label: "General Donation", qty: 1, amount: 5000 },
+            { label: "Annadanam Seva", qty: 1, amount: 2500 },
+          ]
+        : SAMPLE_RECEIPT.lines,
     addressLines: settings
       ? [settings.addressLine1, [settings.addressLine2, settings.city, settings.state, settings.pincode].filter(Boolean).join(", ")].filter(
           (l): l is string => Boolean(l && l.trim()),
@@ -190,6 +206,51 @@ export default function ReceiptLayoutsPage() {
             </div>
           </SectionCard>
 
+          {active === "a4" ? (
+            <SectionCard title="Logo" description="Organisation logo at the top of the A4 receipt. Upload it in Settings.">
+              <div className="space-y-4">
+                <SwitchOption
+                  label="Show logo"
+                  description="Print the organisation logo in the header"
+                  isSelected={design.showLogo !== false}
+                  onChange={(v) => update({ showLogo: v })}
+                />
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-sm font-medium">Position</p>
+                  <div className="flex gap-2">
+                    {(["left", "center", "right"] as const).map((a) => (
+                      <Button
+                        key={a}
+                        size="sm"
+                        variant={(design.logoAlign ?? "center") === a ? "primary" : "outline"}
+                        isDisabled={design.showLogo === false}
+                        onPress={() => update({ logoAlign: a })}
+                      >
+                        {a[0].toUpperCase() + a.slice(1)}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-sm font-medium">Size</p>
+                  <div className="flex gap-2">
+                    {(["sm", "md", "lg"] as const).map((s) => (
+                      <Button
+                        key={s}
+                        size="sm"
+                        variant={(design.logoSize ?? "md") === s ? "primary" : "outline"}
+                        isDisabled={design.showLogo === false}
+                        onPress={() => update({ logoSize: s })}
+                      >
+                        {s.toUpperCase()}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </SectionCard>
+          ) : null}
+
           <SectionCard title="Footer" description="Shown at the bottom (e.g. blessings, terms).">
             <RichTextEditor
               aria-label="Receipt footer"
@@ -221,6 +282,19 @@ export default function ReceiptLayoutsPage() {
               </Button>
             }
           >
+            <div className="mb-3 flex gap-2">
+              <span className="text-foreground/55 self-center text-xs">Preview as:</span>
+              {(["seva", "donation"] as const).map((k) => (
+                <Button
+                  key={k}
+                  size="sm"
+                  variant={previewKind === k ? "primary" : "outline"}
+                  onPress={() => setPreviewKind(k)}
+                >
+                  {k === "seva" ? "Seva" : "Donation"}
+                </Button>
+              ))}
+            </div>
             <div className="bg-default-100 rounded-lg p-4">
               <ScaledReceipt layout={active} design={design} data={previewData} />
             </div>
