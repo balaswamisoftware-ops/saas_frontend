@@ -149,6 +149,13 @@ export function tenantApi(slug: string) {
     settings: {
       get: () => api.get<TenantSettings>(`${base}/settings`),
       update: (body: Partial<TenantSettings>) => api.patch<TenantSettings>(`${base}/settings`, body),
+      /**
+       * Request a presigned S3 URL to upload the organisation logo. The backend
+       * returns `uploadUrl` (PUT the file here) and `fileUrl` (the public URL to
+       * store in `logoUrl`).
+       */
+      logoUploadUrl: (body: { fileName: string; contentType: string }) =>
+        api.post<{ uploadUrl: string; fileUrl: string }>(`${base}/settings/logo-upload-url`, body),
     },
   };
 }
@@ -164,6 +171,8 @@ export interface TenantReports {
 export interface TenantSettings {
   name: string;
   slug: string;
+  /** Organisation logo URL (stored in S3). Shown in the app + on receipts. */
+  logoUrl?: string;
   legalName?: string;
   supportEmail?: string;
   website?: string;

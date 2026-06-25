@@ -61,6 +61,7 @@ export default function PrintersPage() {
   const previewData: ReceiptData = {
     ...SAMPLE_RECEIPT,
     orgName: settings?.name ?? SAMPLE_RECEIPT.orgName,
+    logo: settings?.logoUrl,
     addressLines: settings
       ? [settings.addressLine1, [settings.addressLine2, settings.city, settings.state, settings.pincode].filter(Boolean).join(", ")].filter(
           (l): l is string => Boolean(l && l.trim()),

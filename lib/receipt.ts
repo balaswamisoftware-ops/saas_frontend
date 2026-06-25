@@ -23,6 +23,8 @@ export interface ReceiptLine {
 
 export interface ReceiptData {
   orgName: string;
+  /** Organisation logo URL — printed faintly as a centered watermark. */
+  logo?: string;
   addressLines: string[];
   phone?: string;
   gstin?: string;
@@ -363,7 +365,15 @@ export function buildReceiptBody(
   const content = parts.join(rule(layout));
   const frame = thermal ? "" : "border:2px solid #d9c9b3;border-radius:6px;";
 
-  return `<div style="width:${dim.width};padding:${dim.pad};font-size:${dim.font};font-family:${font};color:#000;background:#fff;line-height:1.4;box-sizing:border-box;word-break:break-word;${frame}">${content}</div>`;
+  // Organisation logo printed as a faint, centered watermark behind the
+  // content. An <img> (not a CSS background) so it prints reliably.
+  const watermark = data.logo
+    ? `<img src="${data.logo}" alt="" aria-hidden="true" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:${
+        thermal ? "82%" : "62%"
+      };max-height:${thermal ? "72%" : "62%"};object-fit:contain;opacity:0.07;pointer-events:none;z-index:0" />`
+    : "";
+
+  return `<div style="position:relative;overflow:hidden;width:${dim.width};padding:${dim.pad};font-size:${dim.font};font-family:${font};color:#000;background:#fff;line-height:1.4;box-sizing:border-box;word-break:break-word;-webkit-print-color-adjust:exact;print-color-adjust:exact;${frame}">${watermark}<div style="position:relative;z-index:1">${content}</div></div>`;
 }
 
 /** Build a complete, self-contained HTML document for printing / sending. */
@@ -396,10 +406,31 @@ export function printReceipt(layout: ReceiptLayout, design: ReceiptDesign, data:
   win.document.open();
   win.document.write(doc);
   win.document.close();
-  const run = () => {
+  let printed = false;
+  const doPrint = () => {
+    if (printed) return;
+    printed = true;
     win.focus();
     win.print();
     window.setTimeout(() => iframe.remove(), 1000);
+  };
+  const run = () => {
+    // Wait for any images (e.g. the logo watermark) to load before printing,
+    // with a safety timeout so a slow/broken image never blocks printing.
+    const pending = Array.from(win.document.images ?? []).filter((im) => !im.complete);
+    if (pending.length === 0) {
+      window.setTimeout(doPrint, 80);
+      return;
+    }
+    let left = pending.length;
+    const tick = () => {
+      if (--left <= 0) doPrint();
+    };
+    pending.forEach((im) => {
+      im.addEventListener("load", tick);
+      im.addEventListener("error", tick);
+    });
+    window.setTimeout(doPrint, 2500);
   };
   if (win.document.readyState === "complete") window.setTimeout(run, 80);
   else iframe.onload = run;
@@ -437,6 +468,7 @@ export function resolveDesign(
 /** Organisation fields (structurally a subset of TenantSettings). */
 export interface ReceiptOrg {
   name?: string;
+  logoUrl?: string;
   addressLine1?: string;
   addressLine2?: string;
   city?: string;
@@ -473,6 +505,7 @@ export function receiptFromBooking(org: ReceiptOrg, booking: ReceiptBooking): Re
   const addressLines = [org.addressLine1, cityLine].filter((l): l is string => Boolean(l && l.trim()));
   return {
     orgName: org.name ?? "",
+    logo: org.logoUrl,
     addressLines: addressLines.length ? addressLines : [""],
     phone: org.phone,
     gstin: org.gstin,

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Pencil } from "lucide-react";
 import { Button, FormField, PhoneField, SectionCard, toast } from "@/components/ui";
+import { LogoUpload } from "@/components/common/logo-upload";
 import { useTenant, useApi } from "@/hooks";
 import { toApiPhone, toNationalPhone } from "@/lib/phone";
 import type { TenantSettings } from "@/lib/api/services";
@@ -70,6 +71,21 @@ export function SettingsForm({ scope }: SettingsFormProps) {
     if (data) setValues(data);
   }
 
+  /** Upload the chosen logo to S3 via a backend presigned URL; returns its URL. */
+  async function uploadLogo(file: File): Promise<string> {
+    const { uploadUrl, fileUrl } = await api.settings.logoUploadUrl({
+      fileName: file.name,
+      contentType: file.type,
+    });
+    const res = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": file.type },
+      body: file,
+    });
+    if (!res.ok) throw new Error("Could not upload to storage");
+    return fileUrl;
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-end gap-2">
@@ -93,6 +109,17 @@ export function SettingsForm({ scope }: SettingsFormProps) {
         title={isPlatform ? "Platform profile" : "Organisation profile"}
         description="Basic information shown across the workspace."
       >
+        {!isPlatform ? (
+          <div className="mb-5 max-w-3xl">
+            <p className="mb-1.5 text-sm font-medium">Organisation logo</p>
+            <LogoUpload
+              value={field("logoUrl")}
+              onChange={set("logoUrl")}
+              upload={uploadLogo}
+              isDisabled={ro}
+            />
+          </div>
+        ) : null}
         <div className="grid max-w-3xl gap-4 sm:grid-cols-2">
           <FormField
             label={isPlatform ? "Product name" : "Organisation name"}
