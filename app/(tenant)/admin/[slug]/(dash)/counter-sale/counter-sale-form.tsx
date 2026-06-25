@@ -107,7 +107,9 @@ export function CounterSaleForm() {
 
   function selectDevotee(d: Devotee) {
     setDevoteeId(d.id);
-    setMobile(d.phone);
+    // Stored phones may include the +91 country code; the field holds the
+    // 10-digit local number (the submit button is gated on exactly 10 digits).
+    setMobile((d.phone ?? "").replace(/\D/g, "").slice(-10));
     setName(d.name ?? "");
     setGotra(d.gotra ?? "");
     setNakshatra(d.nakshatra ?? "");
