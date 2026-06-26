@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Printer as PrinterIcon, RotateCcw, Save } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ImagePlus, Printer as PrinterIcon, RotateCcw, Save, Trash2 } from "lucide-react";
 import {
   Button,
   PageHeader,
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { ScaledReceipt } from "@/components/receipt/scaled-receipt";
+import { LayoutCanvas } from "@/components/receipt/layout-canvas";
 import { useTenant, useApi } from "@/hooks";
 import {
   DEFAULT_DESIGNS,
@@ -26,6 +27,7 @@ import {
   printReceipt,
   type ReceiptDesign,
   type ReceiptData,
+  type ReceiptOverlay,
 } from "@/lib/receipt";
 import type { ReceiptLayout } from "@/types";
 
@@ -45,6 +47,9 @@ export default function ReceiptLayoutsPage() {
   const [previewKind, setPreviewKind] = useState<"seva" | "donation">("seva");
   const [designs, setDesigns] = useState<Record<ReceiptLayout, ReceiptDesign>>(DEFAULT_DESIGNS);
   const [saving, setSaving] = useState(false);
+  const [selectedOverlay, setSelectedOverlay] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Hydrate the designer from the tenant's saved layouts once settings load.
   useEffect(() => {
@@ -79,6 +84,43 @@ export default function ReceiptLayoutsPage() {
 
   function update(patch: Partial<ReceiptDesign>) {
     setDesigns((prev) => ({ ...prev, [active]: { ...prev[active], ...patch } }));
+  }
+
+  const overlays = design.overlays ?? [];
+  const setOverlays = (next: ReceiptOverlay[]) => update({ overlays: next });
+  const updateOverlay = (id: string, patch: Partial<ReceiptOverlay>) =>
+    setOverlays(overlays.map((o) => (o.id === id ? { ...o, ...patch } : o)));
+  function removeOverlay(id: string) {
+    setOverlays(overlays.filter((o) => o.id !== id));
+    setSelectedOverlay(null);
+  }
+
+  /** Upload an extra image to S3 (reuses the logo presign endpoint). */
+  async function uploadImage(file: File): Promise<string> {
+    const { uploadUrl, fileUrl } = await api.settings.logoUploadUrl({
+      fileName: file.name,
+      contentType: file.type,
+    });
+    const res = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+    if (!res.ok) throw new Error("Could not upload to storage");
+    return fileUrl;
+  }
+
+  async function onAddImage(file: File | undefined) {
+    if (!file) return;
+    setUploadingImage(true);
+    try {
+      const url = await uploadImage(file);
+      const id = `ov_${Date.now()}`;
+      setOverlays([...overlays, { id, url, xPct: 35, yPct: 28, wPct: 25, opacity: 1 }]);
+      setSelectedOverlay(id);
+      toast.success("Image added — drag it to position, drag the corner to resize");
+    } catch (e) {
+      toast.danger((e as { message?: string }).message ?? "Could not add image");
+    } finally {
+      setUploadingImage(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   }
 
   async function save() {
@@ -123,7 +165,10 @@ export default function ReceiptLayoutsPage() {
             key={l}
             size="sm"
             variant={active === l ? "primary" : "outline"}
-            onPress={() => setActive(l)}
+            onPress={() => {
+              setActive(l);
+              setSelectedOverlay(null);
+            }}
           >
             {RECEIPT_LAYOUT_LABEL[l]}
           </Button>
@@ -282,7 +327,7 @@ export default function ReceiptLayoutsPage() {
               </Button>
             }
           >
-            <div className="mb-3 flex gap-2">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
               <span className="text-foreground/55 self-center text-xs">Preview as:</span>
               {(["seva", "donation"] as const).map((k) => (
                 <Button
@@ -294,9 +339,69 @@ export default function ReceiptLayoutsPage() {
                   {k === "seva" ? "Seva" : "Donation"}
                 </Button>
               ))}
+              {active === "a4" ? (
+                <>
+                  <span className="bg-default-200 mx-1 h-5 w-px" />
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                    className="hidden"
+                    onChange={(e) => onAddImage(e.target.files?.[0])}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    isDisabled={uploadingImage}
+                    onPress={() => fileInputRef.current?.click()}
+                  >
+                    <ImagePlus className="size-4" /> {uploadingImage ? "Uploading…" : "Add image"}
+                  </Button>
+                </>
+              ) : null}
             </div>
+
+            {active === "a4" && selectedOverlay
+              ? (() => {
+                  const o = overlays.find((x) => x.id === selectedOverlay);
+                  if (!o) return null;
+                  return (
+                    <div className="border-default-200 mb-3 flex flex-wrap items-center gap-3 rounded-lg border p-2 text-xs">
+                      <span className="font-medium">Selected image</span>
+                      <label className="flex items-center gap-1.5">
+                        Opacity
+                        <input
+                          type="range"
+                          min={10}
+                          max={100}
+                          value={Math.round((o.opacity ?? 1) * 100)}
+                          onChange={(e) => updateOverlay(o.id, { opacity: Number(e.target.value) / 100 })}
+                        />
+                      </label>
+                      <Button size="sm" variant="outline" onPress={() => updateOverlay(o.id, { opacity: 0.08 })}>
+                        As watermark
+                      </Button>
+                      <Button size="sm" variant="ghost" onPress={() => removeOverlay(o.id)}>
+                        <Trash2 className="size-4" /> Remove
+                      </Button>
+                    </div>
+                  );
+                })()
+              : null}
+
             <div className="bg-default-100 rounded-lg p-4">
-              <ScaledReceipt layout={active} design={design} data={previewData} />
+              {active === "a4" ? (
+                <LayoutCanvas
+                  layout={active}
+                  design={design}
+                  data={previewData}
+                  selectedId={selectedOverlay}
+                  onSelect={setSelectedOverlay}
+                  onChange={setOverlays}
+                />
+              ) : (
+                <ScaledReceipt layout={active} design={design} data={previewData} />
+              )}
             </div>
           </SectionCard>
         </div>

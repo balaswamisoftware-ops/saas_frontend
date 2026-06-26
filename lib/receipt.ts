@@ -118,6 +118,23 @@ export interface ReceiptDesign {
   logoAlign?: "left" | "center" | "right";
   /** Header logo size (A4): sm ≈ 56px, md ≈ 88px, lg ≈ 120px tall. Default "md". */
   logoSize?: "sm" | "md" | "lg";
+  /** Free-positioned images placed on the A4 page (drag-and-drop editor). */
+  overlays?: ReceiptOverlay[];
+}
+
+/** A free-positioned image on the A4 page. Coordinates are % of the page so they
+ *  scale correctly from the on-screen editor to the printed sheet. */
+export interface ReceiptOverlay {
+  id: string;
+  url: string;
+  /** Left, as % of page width (0–100). */
+  xPct: number;
+  /** Top, as % of page height (0–100). */
+  yPct: number;
+  /** Width, as % of page width. */
+  wPct: number;
+  /** 0–1; use a low value (e.g. 0.08) for a watermark-style image. */
+  opacity?: number;
 }
 
 /** Fields that can be dropped into the header/footer rich text. */
@@ -423,7 +440,21 @@ export function buildReceiptBody(
       };max-height:${thermal ? "72%" : "62%"};object-fit:contain;opacity:0.07;pointer-events:none;z-index:0" />`
     : "";
 
-  return `<div style="position:relative;overflow:hidden;width:${dim.width};padding:${dim.pad};font-size:${dim.font};font-family:${font};color:#000;background:#fff;line-height:1.4;box-sizing:border-box;word-break:break-word;-webkit-print-color-adjust:exact;print-color-adjust:exact;${frame}">${watermark}<div style="position:relative;z-index:1">${content}</div></div>`;
+  // Free-positioned images placed via the A4 drag-and-drop editor. Absolute,
+  // % coordinates so the printed sheet matches the on-screen canvas.
+  const overlaysHtml =
+    !thermal && design.overlays?.length
+      ? design.overlays
+          .map(
+            (o) =>
+              `<img src="${o.url}" alt="" aria-hidden="true" style="position:absolute;left:${o.xPct}%;top:${o.yPct}%;width:${o.wPct}%;${
+                o.opacity != null ? `opacity:${o.opacity};` : ""
+              }object-fit:contain;pointer-events:none;z-index:2" />`,
+          )
+          .join("")
+      : "";
+
+  return `<div style="position:relative;overflow:hidden;width:${dim.width};padding:${dim.pad};font-size:${dim.font};font-family:${font};color:#000;background:#fff;line-height:1.4;box-sizing:border-box;word-break:break-word;-webkit-print-color-adjust:exact;print-color-adjust:exact;${frame}">${watermark}<div style="position:relative;z-index:1">${content}</div>${overlaysHtml}</div>`;
 }
 
 /** Build a complete, self-contained HTML document for printing / sending. */
